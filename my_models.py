@@ -6,7 +6,7 @@ import math
 ### AlexNet
 class AlexNet(nn.Module):
   def __init__(self, in_channels, out_channels, config=None):
-    super(AlexNet, self).__init__()
+    super().__init__()
 
     self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=6, kernel_size=5)
     self.conv2 = nn.Conv2d(in_channels=6, out_channels=12, kernel_size=5)
@@ -42,52 +42,46 @@ class AlexNet(nn.Module):
     return t
 
 ### VGG
-class DoubleConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(DoubleConv, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, padding=1)
+
+class xConv(nn.Module):
+    def __init__(self, num_of_conv_layers, in_channels, out_channels, **kwargs):
+        super().__init__()
+        self.num_of_conv_layers = num_of_conv_layers
+        setattr(self, 'conv0', 
+                nn.Conv2d(in_channels=in_channels, 
+                          out_channels=out_channels, 
+                          kernel_size=3, padding=1, **kwargs))
+        for i in range(1, num_of_conv_layers):
+            setattr(self, 'conv'+str(i), 
+                    nn.Conv2d(in_channels=out_channels, 
+                              out_channels=out_channels, 
+                              kernel_size=3, padding=1, **kwargs))
         
     def forward(self, t):
-        t = self.conv1(t)
-        t = F.relu(t)
-        t = self.conv2(t)
-        t = F.relu(t)
-        t = F.max_pool2d(t, kernel_size=2)        
-        return t
-    
-    
-class TripleConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(TripleConv, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, padding=1)       
-        
-    def forward(self, t):
-        t = self.conv1(t)
-        t = F.relu(t)
-        t = self.conv2(t)
-        t = F.relu(t)
-        t = self.conv3(t)
-        t = F.relu(t)
-        t = F.max_pool2d(t, kernel_size=2)        
+        for i in range(self.num_of_conv_layers):
+            t = getattr(self, 'conv'+str(i))(t)
+            t = F.relu(t)
+        t = F.max_pool2d(t, kernel_size=2)  
         return t
         
-class VGGBlock16(nn.Module):
-    def __init__(self,  in_channels, out_channels, height, width, config=None):
-        super(VGGBlock16, self).__init__()
+class VGG16(nn.Module):
+    def __init__(self,  in_channels, out_channels):
+        super().__init__()
+        self.num_of_fc_layers = 3
+
+        self.double_conv1 = xConv(2, in_channels, 8)
+        self.double_conv2 = xConv(2, 8, 16)
         
-        self.double_conv1 = DoubleConv(in_channels, 8)
-        self.double_conv2 = DoubleConv(8, 16)
+        self.triple_conv1 = xConv(3, 16, 32)
+        self.triple_conv2 = xConv(3, 32, 64)
+        self.triple_conv3 = xConv(3, 64, 64)
+
         
-        self.triple_conv1 = TripleConv(16, 32)
-        self.triple_conv2 = TripleConv(32, 64)
-        self.triple_conv3 = TripleConv(64, 64)
-        
-        self.fc1 = nn.Linear(in_features=math.ceil((height/32)*(width/32))*64, out_features=60)
-        self.fc2 = nn.Linear(in_features=60, out_features=60)
-        self.fc3 = nn.Linear(in_features=60, out_features=out_channels)
+        for num, in_features, out_features in zip(
+            range(self.num_of_fc_layers), [64,60,60],[60,60,out_channels]
+        ):
+            setattr(self, 'fc'+str(num),
+                   nn.Linear(in_features=in_features, out_features=out_features))
         
     def forward(self, t):
         # 2 двойных свертки:
@@ -99,13 +93,16 @@ class VGGBlock16(nn.Module):
         t = self.triple_conv2(t)
         t = self.triple_conv3(t)
         
+        if t.shape[2]>1 or t.shape[3]>1:
+            t = nn.AdaptiveAvgPool2d((1,1))(t)
+  
         # 3 полносвязных слоя
-        t = torch.flatten(t)
-        t = self.fc1(t)
-        t = F.relu(t)
-        t = self.fc2(t)
-        t = F.relu(t)
-        t = self.fc3(t)
+        t = t.reshape(-1, t.shape[1])
+        for i in range(self.num_of_fc_layers):
+            t = getattr(self, 'fc'+str(i))(t)
+            if i<self.num_of_fc_layers:
+                t = F.relu(t)
+
         #softmax
         return t
         
