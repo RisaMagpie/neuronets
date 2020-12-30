@@ -11,7 +11,7 @@ class AlexNet(nn.Module):
     self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=6, kernel_size=5)
     self.conv2 = nn.Conv2d(in_channels=6, out_channels=12, kernel_size=5)
 
-    self.fc1 = nn.Linear(in_features=12*4*4, out_features=120)
+    self.fc1 = nn.Linear(in_features=300, out_features=120)
     self.fc2 = nn.Linear(in_features=120, out_features=60)
     self.out = nn.Linear(in_features=60, out_features=out_channels)
 
@@ -27,7 +27,7 @@ class AlexNet(nn.Module):
     tensor = F.max_pool2d(tensor, kernel_size=2)
 
     # fc1
-    tensor = tensor.reshape(-1, tensor.shape[1]) # x.view - оставила коммент на погуглить
+    tensor = torch.flatten(tensor, 1) # x.view - оставила коммент на погуглить
     tensor = self.fc1(tensor)
     tensor = F.relu(tensor)
 
@@ -97,7 +97,7 @@ class VGG16(nn.Module):
             tensor = nn.AdaptiveAvgPool2d((1,1))(tensor)
   
         # 3 полносвязных слоя
-        tensor = tensor.reshape(-1, tensor.shape[1])
+        tensor = torch.flatten(tensor, 1)
         for i in range(self.num_of_fc_layers):
             tensor = getattr(self, 'fc'+str(i))(tensor)
             if i<self.num_of_fc_layers:
