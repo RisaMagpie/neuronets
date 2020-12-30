@@ -15,31 +15,31 @@ class AlexNet(nn.Module):
     self.fc2 = nn.Linear(in_features=120, out_features=60)
     self.out = nn.Linear(in_features=60, out_features=out_channels)
 
-  def forward(self, t):
+  def forward(self, tensor):
     # conv 1
-    t = self.conv1(t)
-    t = F.relu(t)
-    t = F.max_pool2d(t, kernel_size=2)
+    tensor = self.conv1(tensor)
+    tensor = F.relu(tensor)
+    tensor = F.max_pool2d(tensor, kernel_size=2)
 
     # conv 2
-    t = self.conv2(t)
-    t = F.relu(t)
-    t = F.max_pool2d(t, kernel_size=2)
+    tensor = self.conv2(tensor)
+    tensor = F.relu(tensor)
+    tensor = F.max_pool2d(tensor, kernel_size=2)
 
     # fc1
-    t = t.reshape(-1, t.shape[1]) # x.view - оставила коммент на погуглить
-    t = self.fc1(t)
-    t = F.relu(t)
+    tensor = tensor.reshape(-1, tensor.shape[1]) # x.view - оставила коммент на погуглить
+    tensor = self.fc1(tensor)
+    tensor = F.relu(tensor)
 
     # fc2
-    t = self.fc2(t)
-    t = F.relu(t)
+    tensor = self.fc2(tensor)
+    tensor = F.relu(tensor)
 
     # output
-    t = self.out(t)
+    tensor = self.out(tensor)
     # don't need softmax here since we'll use cross-entropy as activation.
 
-    return t
+    return tensor
 
 ### VGG
 
@@ -57,12 +57,12 @@ class xConv(nn.Module):
                               out_channels=out_channels, 
                               kernel_size=3, padding=1, **kwargs))
         
-    def forward(self, t):
+    def forward(self, tensor):
         for i in range(self.num_of_conv_layers):
-            t = getattr(self, 'conv'+str(i))(t)
-            t = F.relu(t)
-        t = F.max_pool2d(t, kernel_size=2)  
-        return t
+            tensor = getattr(self, 'conv'+str(i))(tensor)
+            tensor = F.relu(tensor)
+        tensor = F.max_pool2d(tensor, kernel_size=2)  
+        return tensor
         
 class VGG16(nn.Module):
     def __init__(self,  in_channels, out_channels):
@@ -83,79 +83,81 @@ class VGG16(nn.Module):
             setattr(self, 'fc'+str(num),
                    nn.Linear(in_features=in_features, out_features=out_features))
         
-    def forward(self, t):
+    def forward(self, tensor):
         # 2 двойных свертки:
-        t = self.double_conv1(t)
-        t = self.double_conv2(t)
+        tensor = self.double_conv1(tensor)
+        tensor = self.double_conv2(tensor)
         
         # 3 тройных свертки:
-        t = self.triple_conv1(t)
-        t = self.triple_conv2(t)
-        t = self.triple_conv3(t)
+        tensor = self.triple_conv1(tensor)
+        tensor = self.triple_conv2(tensor)
+        tensor = self.triple_conv3(tensor)
         
-        if t.shape[2]>1 or t.shape[3]>1:
-            t = nn.AdaptiveAvgPool2d((1,1))(t)
+        if tensor.shape[2]>1 or tensor.shape[3]>1:
+            tensor = nn.AdaptiveAvgPool2d((1,1))(tensor)
   
         # 3 полносвязных слоя
-        t = t.reshape(-1, t.shape[1])
+        tensor = tensor.reshape(-1, tensor.shape[1])
         for i in range(self.num_of_fc_layers):
-            t = getattr(self, 'fc'+str(i))(t)
+            tensor = getattr(self, 'fc'+str(i))(tensor)
             if i<self.num_of_fc_layers:
-                t = F.relu(t)
+                tensor = F.relu(tensor)
 
         #softmax
-        return t
+        return tensor
         
         
 ### ResNet
 
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
-        self.conv_layers_num = 3
         super().__init__()
-        for num, (kern_size, padd_size) in enumerate(zip([1,3], [0,1])):
-            setattr(self, 'conv'+str(num),
-                    nn.Conv2d(in_channels=in_channels, 
-                              out_channels=in_channels, 
-                              kernel_size=kern_size, padding=padd_size))
-        setattr(self, 'conv'+str(self.conv_layers_num-1),
-                nn.Conv2d(in_channels=in_channels, 
-                          out_channels=out_channels, 
-                          kernel_size=kern_size, padding=padd_size))
-        self.skip = None
+        self.conv_layers_num = 3
+        self.conv0 = nn.Conv2d(in_channels=in_channels, 
+                               out_channels=in_channels, 
+                               kernel_size=1, padding=0)
+        self.conv1 = nn.Conv2d(in_channels=in_channels, 
+                               out_channels=in_channels, 
+                               kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=in_channels, 
+                               out_channels=out_channels, 
+                               kernel_size=1, padding=0)
+
         if in_channels!=out_channels:
-            self.skip = nn.Sequential(
+            self.adjust_skip_size = nn.Sequential(
                 nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1))
+        else:
+            self.adjust_skip_size = None
         
-    def forward(self, t):
-        ident = t
+    def forward(self, tensor):
+        input_tensor = tensor
         for i in range(self.conv_layers_num):
-            t = getattr(self, 'conv'+str(i))(t)
+            tensor = getattr(self, 'conv'+str(i))(tensor)
             if i<self.conv_layers_num:
-                t=F.relu(t)
-        if self.skip:
-            ident = self.skip(ident)
-        t = t + ident
-        t=F.relu(t)
-        return t
+                tensor = F.relu(tensor)
+        if self.adjust_skip_size:
+            input_tensor = self.adjust_skip_size(input_tensor)
+        tensor = tensor + input_tensor
+        tensor = F.relu(tensor)
+        return tensor
                 
 class ResNet(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=3, stride = 2)
         self.resblocks = nn.ModuleList([ResBlock(64*i, 64*(i+1)) for i in range(1,3)])
-        self.fc1 = nn.Linear(in_features=384, out_features=out_channels)     
+        self.fc1 = nn.Linear(in_features=192, out_features=out_channels)     
         
-    def forward(self, t):                
-        t = self.conv1(t)
-        t = F.max_pool2d(t, kernel_size=3, stride=2)  
+    def forward(self, tensor):                
+        tensor = self.conv1(tensor)
+        tensor = F.max_pool2d(tensor, kernel_size=3, stride=2)  
         for block in self.resblocks:
-            t = block(t)
+            tensor = block(tensor)
     
-        if t.shape[2]>1 or t.shape[3]>1:
-            t = nn.AdaptiveAvgPool2d((1,1))(t)
+        if tensor.shape[2]>1 or tensor.shape[3]>1:
+            tensor = nn.AdaptiveAvgPool2d((1,1))(tensor)
 
-        t = t.reshape(-1, t.shape[1]*t.shape[0])
-        t = self.fc1(t)
-        return t
+        tensor = torch.flatten(tensor, 1)
+        tensor = self.fc1(tensor)
+        return tensor
         
