@@ -27,7 +27,7 @@ class AlexNet(nn.Module):
     t = F.max_pool2d(t, kernel_size=2)
 
     # fc1
-    t = t.reshape(-1, 12*4*4) # x.view - оставила коммент на погуглить
+    t = t.reshape(-1, t.shape[1]) # x.view - оставила коммент на погуглить
     t = self.fc1(t)
     t = F.relu(t)
 
@@ -104,5 +104,58 @@ class VGG16(nn.Module):
                 t = F.relu(t)
 
         #softmax
+        return t
+        
+        
+### ResNet
+
+class ResBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        self.conv_layers_num = 3
+        super().__init__()
+        for num, (kern_size, padd_size) in enumerate(zip([1,3], [0,1])):
+            setattr(self, 'conv'+str(num),
+                    nn.Conv2d(in_channels=in_channels, 
+                              out_channels=in_channels, 
+                              kernel_size=kern_size, padding=padd_size))
+        setattr(self, 'conv'+str(self.conv_layers_num-1),
+                nn.Conv2d(in_channels=in_channels, 
+                          out_channels=out_channels, 
+                          kernel_size=kern_size, padding=padd_size))
+        self.skip = None
+        if in_channels!=out_channels:
+            self.skip = nn.Sequential(
+                nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1))
+        
+    def forward(self, t):
+        ident = t
+        for i in range(self.conv_layers_num):
+            t = getattr(self, 'conv'+str(i))(t)
+            if i<self.conv_layers_num:
+                t=F.relu(t)
+        if self.skip:
+            ident = self.skip(ident)
+        t = t + ident
+        t=F.relu(t)
+        return t
+                
+class ResNet(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=3, stride = 2)
+        self.resblocks = nn.ModuleList([ResBlock(64*i, 64*(i+1)) for i in range(1,3)])
+        self.fc1 = nn.Linear(in_features=384, out_features=out_channels)     
+        
+    def forward(self, t):                
+        t = self.conv1(t)
+        t = F.max_pool2d(t, kernel_size=3, stride=2)  
+        for block in self.resblocks:
+            t = block(t)
+    
+        if t.shape[2]>1 or t.shape[3]>1:
+            t = nn.AdaptiveAvgPool2d((1,1))(t)
+
+        t = t.reshape(-1, t.shape[1]*t.shape[0])
+        t = self.fc1(t)
         return t
         
