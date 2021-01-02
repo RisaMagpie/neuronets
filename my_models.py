@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
+import json
 
 ### AlexNet
 class AlexNet(nn.Module):
@@ -27,7 +27,7 @@ class AlexNet(nn.Module):
     tensor = F.max_pool2d(tensor, kernel_size=2)
 
     # fc1
-    tensor = torch.flatten(tensor, 1) # x.view - оставила коммент на погуглить
+    tensor = torch.flatten(tensor, 1)
     tensor = self.fc1(tensor)
     tensor = F.relu(tensor)
 
@@ -135,6 +135,7 @@ class ResBlock(nn.Module):
             tensor = getattr(self, 'conv'+str(i))(tensor)
             if i<self.conv_layers_num:
                 tensor = F.relu(tensor)
+                
         if self.adjust_skip_size:
             input_tensor = self.adjust_skip_size(input_tensor)
         tensor = tensor + input_tensor
@@ -160,4 +161,3 @@ class ResNet(nn.Module):
         tensor = torch.flatten(tensor, 1)
         tensor = self.fc1(tensor)
         return tensor
-        
