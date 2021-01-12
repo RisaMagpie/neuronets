@@ -121,6 +121,49 @@ class VGG16(nn.Module):
 
         #softmax
         return tensor
+    
+class VGG(nn.Module):
+    def __init__(self, 
+                 in_channels: int, 
+                 out_channels: int,
+                 conv_blocks_out_size: typing.List[int], 
+                 conv_blocks_amounts: typing.List[int],
+                 linear_layers_out_size: typing.List[int], # last element must be equals to out_channels
+                 *args, **kwargs):
+        super().__init__()
+        
+        # Convolution layers
+        self.xconv_layers = nn.ModuleList([])
+        conv_blocks_out_size.insert(0, in_channels) # добавление input channnels для первого блока
+        for (layer_depth, in_channels_iterator, out_channels_iterator) in zip(conv_blocks_amounts,  conv_blocks_out_size[:-1], conv_blocks_out_size[1:]):            
+            self.xconv_layers = self.xconv_layers.append(
+                xConv(layer_depth, in_channels_iterator, out_channels_iterator) 
+            )
+
+        # Linear layers:
+        self.linear_layers = nn.ModuleList([])
+        linear_layers_out_size.insert(0, conv_blocks_out_size[-1])
+        for (in_channels_iterator, out_channels_iterator) in zip(
+             linear_layers_out_size[:-1], linear_layers_out_size[1:]
+        ):
+            self.linear_layers = self.linear_layers.append(
+                nn.Linear(in_features=in_channels_iterator, 
+                          out_features=out_channels_iterator)
+            )
+            
+    def forward(self, tensor):
+        for layer in self.xconv_layers:
+            tensor = layer(tensor)
+        tensor = nn.AdaptiveAvgPool2d((1,1))(tensor) 
+        tensor = torch.flatten(tensor, 1)
+        for layer in self.linear_layers[:-1]:
+            tensor = layer(tensor)
+            tensor = F.relu(tensor)
+        tensor = self.linear_layers[-1](tensor)
+        return tensor
+
+
+        
         
         
 ### ResNet
