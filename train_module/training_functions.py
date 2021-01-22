@@ -29,7 +29,7 @@ def prepare_train_and_val_dls(path, batch_size, size=160):
     trainloader = dloaders.train
     trainloader = trainloader.new(shuffle=True)
     valloader = dloaders.valid
-    valloader = valloader.new(shuffle=True)
+    valloader = valloader.new(shuffle=True, bs=batch_size*2)
     return trainloader, valloader
 
 def accuracy_and_loss(dataloader, net, device, criterion):
@@ -58,25 +58,32 @@ def accuracy_and_loss(dataloader, net, device, criterion):
     accuracy = correct / total
     return accuracy, current_loss
 
-def show_plot(data_arrays, titles, xlabel, ylabels):
+def show_plot(data_arrays, path):
     """
     Drawing graphs of the learning process.
     
     Includes: train loss, train accuracy, validation loss, validation accuracy.
     """
-    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(8,8))
+    y_name=["Loss", "Accuracy"]
 
+    fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(8,4))
+    
     for plot_num, ax in enumerate(axs.flat):
-        ax.plot(data_arrays[plot_num])
-        ax.set_title(titles[plot_num])
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabels[plot_num])
+        ax.plot(data_arrays[plot_num], label=f'Train {y_name[plot_num].lower()}')
+        ax.plot(data_arrays[plot_num+2], label=f'Validation {y_name[plot_num].lower()}')
+        ax.set_title(y_name[plot_num])
+        ax.set_xlabel("Epoch number")
+        ax.set_ylabel(y_name[plot_num])
         ax.grid(True)
+        ax.legend()
+
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig(path)
+
+
     
-def train(net, optimizer, criterion, epoch_num, trainloader, valloader, device, info_to_show=None):
+def train(net, optimizer, criterion, epoch_num, trainloader, valloader, device, graph_path):
     """Neural network training process.
     
     """
@@ -110,24 +117,21 @@ def train(net, optimizer, criterion, epoch_num, trainloader, valloader, device, 
         val_accuracy_history.append(current_val_accuracy)
         
         # visulization:
-        display.clear_output(wait=True)
-        if info_to_show:
-            print(info_to_show)
-
-        show_plot(data_arrays=[train_loss_history, train_accuracy_history, val_loss_history, val_accuracy_history],
-                  titles=["Train loss", "Train accuracy", "Validation loss", "Validation accuracy"], 
-                  xlabel="epoch number", 
-                  ylabels=["loss", "accuracy"]*2)
-
+        if (epoch+1)%5 == 0:
+            show_plot(data_arrays=[train_loss_history, train_accuracy_history, 
+                                   val_loss_history, val_accuracy_history], path=graph_path)        
         
-        
-        
+        """
         print('Current train loss: %f' % current_train_loss)
         print('Current train accuracy: %f' % current_train_accuracy)
 
         print('Current validation loss: %f' % current_val_loss)
         print('Current validation accuracy: %f' % current_val_accuracy)
-    return net, min(val_loss_history), max(val_accuracy_history), min(train_loss_history), max(train_accuracy_history)
+        """
+    return net, {"val losses": val_loss_history, 
+                 "val accuracy": val_accuracy_history, 
+                 "train losses": train_loss_history, 
+                 "train accuracy": train_accuracy_history}
 
 def test_metrics(net, device, testloader, out_channels):    
     """
@@ -157,8 +161,7 @@ def test_metrics(net, device, testloader, out_channels):
             false_positive += ((predicted == 1) != labels).sum().item()
             false_negative += ((predicted == 0) != labels).sum().item()
 
-            for label, prediction in zip(labels, predicted):
-                confusion_matrix_counted[label, prediction] += 1
+            confusion_matrix_counted[labels, predicted] += 1
                 
     confusion_matrix_counted /= confusion_matrix_counted.sum(axis=1)
     accuracy = correct / total

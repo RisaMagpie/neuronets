@@ -77,50 +77,6 @@ class xConv(nn.Module):
             tensor = F.relu(tensor)
         tensor = F.max_pool2d(tensor, kernel_size=2)  
         return tensor
-        
-class VGG16(nn.Module):
-    def __init__(self, 
-                 in_channels: int, 
-                 out_channels: int,
-                 *args, **kwargs):
-        super().__init__()
-        self.num_of_fc_layers = 3
-
-        self.double_conv1 = xConv(2, in_channels, 8)
-        self.double_conv2 = xConv(2, 8, 16)
-        
-        self.triple_conv1 = xConv(3, 16, 32)
-        self.triple_conv2 = xConv(3, 32, 64)
-        self.triple_conv3 = xConv(3, 64, 64)
-
-        
-        for num, in_features, out_features in zip(
-            range(self.num_of_fc_layers), [64,60,60],[60,60,out_channels]
-        ):
-            setattr(self, 'fc'+str(num),
-                   nn.Linear(in_features=in_features, 
-                             out_features=out_features))
-        
-    def forward(self, tensor):
-        # 2 двойных свертки:
-        tensor = self.double_conv1(tensor)
-        tensor = self.double_conv2(tensor)
-        
-        # 3 тройных свертки:
-        tensor = self.triple_conv1(tensor)
-        tensor = self.triple_conv2(tensor)
-        tensor = self.triple_conv3(tensor)
-        
-        tensor = nn.AdaptiveAvgPool2d((1,1))(tensor)  
-        # 3 полносвязных слоя
-        tensor = torch.flatten(tensor, 1)
-        for i in range(self.num_of_fc_layers):
-            tensor = getattr(self, 'fc'+str(i))(tensor)
-            if i<self.num_of_fc_layers:
-                tensor = F.relu(tensor)
-
-        #softmax
-        return tensor
     
 class VGG(nn.Module):
     def __init__(self, 
@@ -271,3 +227,67 @@ class ResNet(nn.Module):
         
         tensor = self.fc0(tensor)
         return tensor
+
+    
+### UNet
+class UnetDownsampleBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv0 = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3)
+        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3)
+        
+    def forward(self, tensor):
+        tensor = self.conv0(tensor)
+        tensor = F.relu(tensor)
+        tensor = self.conv1(tensor)
+        tensor = F.relu(tensor)
+        return tensor
+
+class UNet(nn.Module):
+    def __init__(self, in_channels, out_channels, downsample_depth):
+        super().__init__()
+        self.downsample = nn.ModuleList([
+            UnetDownsampleBlock(in_channels*pow(2,i), in_channels*pow(2,i+1)) for i in range(downsample_depth)
+        ])
+        
+        self.conv0 = nn.Conv2d(in_channels=in_channels*pow(2,downsample_depth+1), 
+                               out_channels=in_channels*pow(2,downsample_depth+1), 
+                               kernel_size=3)
+        self.conv1 = nn.Conv2d(in_channels=in_channels*pow(2,downsample_depth+1), 
+                               out_channels=in_channels*pow(2,downsample_depth+1), 
+                               kernel_size=3)
+        # separate this:
+        self.upsample0 = nn.ConvTranspose2d(in_channels=in_channels*pow(2,downsample_depth+1), 
+                                           out_channels=in_channels*pow(2,downsample_depth+1-1),
+                                           int, kernel_size=2)
+        self.conv0 = nn.Conv2d(in_channels=in_channels*pow(2,downsample_depth+1), 
+                               out_channels=in_channels*pow(2,downsample_depth+1), 
+                               kernel_size=3)
+        self.conv1 = nn.Conv2d(in_channels=in_channels*pow(2,downsample_depth+1), 
+                               out_channels=in_channels*pow(2,downsample_depth), 
+                               kernel_size=3)
+        
+        
+    def forward(self, tensor):
+        saved_tensors = []
+        
+        # downsample
+        for down_block in self.downsample:
+            tensor = down_block(tensor)
+            saved_tensors.append(tensor)
+            tensor = F.max_pool2d(tensor, kernel_size=2)
+            
+        # inner part    
+        tensor = self.conv0(tensor)
+        tensor = F.relu(tensor)
+        tensor = self.conv1(tensor)
+        tensor = F.relu(tensor)
+        
+        # upsample
+        tensor = self.upsample0(tensor)
+        tensor = torch.cat((tensor, saved_tensors[0]), 1)
+        tensor = self.conv0(tensor)
+        
+            
+        
+        
