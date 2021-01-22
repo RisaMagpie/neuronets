@@ -230,11 +230,12 @@ class ResNet(nn.Module):
 
     
 ### UNet
+
 class UnetDownsampleBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv0 = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3)
-        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3)
+        self.conv0 = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1)
         
     def forward(self, tensor):
         tensor = self.conv0(tensor)
@@ -242,52 +243,81 @@ class UnetDownsampleBlock(nn.Module):
         tensor = self.conv1(tensor)
         tensor = F.relu(tensor)
         return tensor
+        
 
 class UNet(nn.Module):
-    def __init__(self, in_channels, out_channels, downsample_depth):
-        super().__init__()
+    def __init__(self, in_channels, out_channels, downsample_depth=4):
+        super().__init__()   
+        self.downsample_depth = downsample_depth
+        # downsample     
         self.downsample = nn.ModuleList([
-            UnetDownsampleBlock(in_channels*pow(2,i), in_channels*pow(2,i+1)) for i in range(downsample_depth)
+            UnetDownsampleBlock(in_channels*pow(2, i), in_channels*pow(2, i+1)) for i in range(downsample_depth)
         ])
         
-        self.conv0 = nn.Conv2d(in_channels=in_channels*pow(2,downsample_depth+1), 
-                               out_channels=in_channels*pow(2,downsample_depth+1), 
-                               kernel_size=3)
-        self.conv1 = nn.Conv2d(in_channels=in_channels*pow(2,downsample_depth+1), 
-                               out_channels=in_channels*pow(2,downsample_depth+1), 
-                               kernel_size=3)
-        # separate this:
-        self.upsample0 = nn.ConvTranspose2d(in_channels=in_channels*pow(2,downsample_depth+1), 
-                                           out_channels=in_channels*pow(2,downsample_depth+1-1),
-                                           int, kernel_size=2)
-        self.conv0 = nn.Conv2d(in_channels=in_channels*pow(2,downsample_depth+1), 
-                               out_channels=in_channels*pow(2,downsample_depth+1), 
-                               kernel_size=3)
-        self.conv1 = nn.Conv2d(in_channels=in_channels*pow(2,downsample_depth+1), 
-                               out_channels=in_channels*pow(2,downsample_depth), 
-                               kernel_size=3)
+        # inner part
+        self.conv0 = nn.Conv2d(in_channels=in_channels*pow(2, downsample_depth), 
+                               out_channels=in_channels*pow(2, downsample_depth), 
+                               kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(in_channels=in_channels*pow(2, downsample_depth), 
+                               out_channels=in_channels*pow(2, downsample_depth), 
+                               kernel_size=3, padding=1)
         
         
-    def forward(self, tensor):
+        # upsample
+        self.upsamples = nn.ModuleList([
+
+            nn.ConvTranspose2d(in_channels=in_channels*pow(2, i), 
+                                           out_channels=in_channels*pow(2, i-1),
+                                           kernel_size=2, stride=2)
+
+            #nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            for i in range(downsample_depth, 0, -1)
+        ])
+        
+        self.conv_upsample_with_changes_ch_amount = nn.ModuleList([
+            nn.Conv2d(in_channels=in_channels*pow(2, i), 
+                      out_channels=in_channels*pow(2, i-1), 
+                      kernel_size=3, padding=1)
+            for i in range(downsample_depth, 0, -1)
+        ])
+        self.conv_upsample_without_changes_ch_amount = nn.ModuleList([
+            nn.Conv2d(in_channels=in_channels*pow(2, i-1), 
+                      out_channels=in_channels*pow(2, i-1), 
+                      kernel_size=3, padding=1)
+            for i in range(downsample_depth, 0, -1)
+        ])
+        self.last_conv = nn.Conv2d(in_channels=in_channels, 
+                      out_channels=out_channels, 
+                      kernel_size=1)
+
+        
+    def forward(self, tensor):        
         saved_tensors = []
+        # crop надо вынести в другую часть программы
+        # h_dim_size = math.floor(np.log2(tensor.shape[0]))
+        # w_dim_size = math.floor(np.log2(tensor.shape[1]))    
+        # torchvision.transforms.CenterCrop
         
         # downsample
         for down_block in self.downsample:
-            tensor = down_block(tensor)
             saved_tensors.append(tensor)
-            tensor = F.max_pool2d(tensor, kernel_size=2)
+            tensor = down_block(tensor)            
+            tensor = F.max_pool2d(tensor, kernel_size=2, stride=2)
             
-        # inner part    
+        # inner part  
         tensor = self.conv0(tensor)
         tensor = F.relu(tensor)
         tensor = self.conv1(tensor)
         tensor = F.relu(tensor)
-        
+
         # upsample
-        tensor = self.upsample0(tensor)
-        tensor = torch.cat((tensor, saved_tensors[0]), 1)
-        tensor = self.conv0(tensor)
-        
-            
-        
-        
+        for block_num, up_block in enumerate(self.upsamples):
+            tensor = up_block(tensor)
+            tensor = torch.cat((tensor, saved_tensors[self.downsample_depth-block_num-1]), 1)
+            tensor = self.conv_upsample_with_changes_ch_amount[block_num](tensor)
+            tensor = F.relu(tensor)
+            tensor = self.conv_upsample_without_changes_ch_amount[block_num](tensor)
+            tensor = F.relu(tensor)
+        tensor = self.last_conv(tensor)
+        return tensor
+    
