@@ -122,28 +122,47 @@ class VGG(nn.Module):
         
         
         
-### ResNet
+### ResNet       
 
 class ResBlock(nn.Module):
     def __init__(self, 
                  in_channels: int, 
-                 out_channels: int):
+                 out_channels: int,
+                 is_bottleneck_block: bool):
         super().__init__()
-        self.conv_layers_num = 3
-        self.conv0 = nn.Conv2d(in_channels=in_channels, 
-                               out_channels=in_channels, 
-                               kernel_size=1, padding=0)
-        self.batch_norm0 = nn.BatchNorm2d(num_features=in_channels)
         
-        self.conv1 = nn.Conv2d(in_channels=in_channels, 
-                               out_channels=in_channels, 
-                               kernel_size=3, padding=1)
-        self.batch_norm1 = nn.BatchNorm2d(num_features=in_channels)
-        
-        self.conv2 = nn.Conv2d(in_channels=in_channels, 
-                               out_channels=out_channels, 
-                               kernel_size=1, padding=0)
-        self.batch_norm2 = nn.BatchNorm2d(num_features=out_channels)
+        if is_bottleneck_block:
+            self.res_block = nn.Sequential(
+                nn.Conv2d(in_channels=in_channels, 
+                          out_channels=in_channels//4, 
+                          kernel_size=1, padding=0),
+                nn.BatchNorm2d(num_features=in_channels//4),
+                nn.ReLU(),
+
+                nn.Conv2d(in_channels=in_channels//4, 
+                          out_channels=in_channels//4, 
+                          kernel_size=3, padding=1),
+                nn.BatchNorm2d(num_features=in_channels//4),
+                nn.ReLU(),
+
+                nn.Conv2d(in_channels=in_channels//4, 
+                          out_channels=out_channels, 
+                          kernel_size=1, padding=0), 
+                nn.BatchNorm2d(num_features=out_channels)
+            )
+        else:
+            self.res_block = nn.Sequential(
+                nn.Conv2d(in_channels=in_channels, 
+                          out_channels=in_channels,
+                          kernel_size=3, padding=1),
+                nn.BatchNorm2d(num_features=in_channels),
+                nn.ReLU(),
+
+                nn.Conv2d(in_channels=in_channels, 
+                          out_channels=out_channels,
+                          kernel_size=3, padding=1),
+                nn.BatchNorm2d(num_features=out_channels)
+            )
 
         if in_channels!=out_channels:
             self.adjust_skip_size = nn.Sequential(
@@ -157,12 +176,7 @@ class ResBlock(nn.Module):
         
     def forward(self, tensor):
         input_tensor = tensor
-        for i in range(self.conv_layers_num):
-            tensor = getattr(self, 'conv'+str(i))(tensor)
-            tensor = getattr(self, 'batch_norm'+str(i))(tensor)
-            if i<self.conv_layers_num:                
-                tensor = F.relu(tensor)
-                
+        tensor = self.res_block(tensor)
         if self.adjust_skip_size:
             input_tensor = self.adjust_skip_size(input_tensor)
         tensor = tensor + input_tensor
@@ -173,21 +187,21 @@ class ResNetLayer(nn.Module):
     def __init__(self, 
                  in_channels: int, 
                  out_channels: int, 
-                 blocks_amount: int):
+                 layer_depth: int, 
+                 is_bottleneck_blocks: bool):
         super().__init__()
         self.resblocks = nn.ModuleList([
-            ResBlock(in_channels, out_channels)
+            ResBlock(in_channels, out_channels, is_bottleneck_blocks)
         ])
         self.resblocks = self.resblocks.extend(nn.ModuleList([
-            ResBlock(out_channels, out_channels) 
-             for counter in range(blocks_amount-1)
+            ResBlock(out_channels, out_channels, is_bottleneck_blocks) 
+             for block_type in range(layer_depth-1)
         ]))
         
     def forward(self, tensor):
         for block in self.resblocks:
             tensor = block(tensor)
         return tensor
-        
         
                 
 class ResNet(nn.Module):
@@ -196,6 +210,7 @@ class ResNet(nn.Module):
                  out_channels: int, 
                  blocks_out_size: typing.List[int], 
                  blocks_amounts: typing.List[int],
+                 is_bottleneck_blocks: bool = False,
                  *args, **kwargs):
         super().__init__()
         
@@ -207,9 +222,14 @@ class ResNet(nn.Module):
         
         blocks_out_size.insert(0, 64) # добавление input channnels для первого ResBlock'a
         self.reslayers = nn.ModuleList([])
-        for (layer_depth, in_channels_iterator, out_channels_iterator) in zip(blocks_amounts, blocks_out_size[:-1], blocks_out_size[1:]):            
+        
+        for (
+            layer_depth, in_channels_iterator, out_channels_iterator
+        ) in zip(
+            blocks_amounts, blocks_out_size[:-1], blocks_out_size[1:]
+        ): 
             self.reslayers = self.reslayers.append(
-                ResNetLayer(in_channels_iterator, out_channels_iterator, layer_depth) 
+                ResNetLayer(in_channels_iterator, out_channels_iterator, layer_depth, is_bottleneck_blocks) 
             )        
         self.fc0 = nn.Linear(in_features=blocks_out_size[-1], out_features=out_channels)     
         
@@ -229,48 +249,47 @@ class ResNet(nn.Module):
         return tensor
 
     
+    
 ### UNet
-
-class UnetDownsampleBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv0 = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1)
-        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1)
-        
-    def forward(self, tensor):
-        tensor = self.conv0(tensor)
-        tensor = F.relu(tensor)
-        tensor = self.conv1(tensor)
-        tensor = F.relu(tensor)
-        return tensor
-        
 
 class UNet(nn.Module):
     def __init__(self, in_channels, out_channels, downsample_depth=4):
         super().__init__()   
         self.downsample_depth = downsample_depth
+        
         # downsample     
         self.downsample = nn.ModuleList([
-            UnetDownsampleBlock(in_channels*pow(2, i), in_channels*pow(2, i+1)) for i in range(downsample_depth)
+            nn.Sequential(
+                nn.Conv2d(in_channels=in_channels*pow(2, i), out_channels=in_channels*pow(2, i), kernel_size=3, padding=1),
+                nn.BatchNorm2d(num_features=in_channels*pow(2, i)),
+                nn.ReLU(),
+                nn.Conv2d(in_channels=in_channels*pow(2, i), out_channels=in_channels*pow(2, i+1), kernel_size=3, padding=1),
+                nn.BatchNorm2d(num_features=in_channels*pow(2, i+1)),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2)
+            )
+            for i in range(downsample_depth)
         ])
         
         # inner part
-        self.conv0 = nn.Conv2d(in_channels=in_channels*pow(2, downsample_depth), 
+        self.inner_part = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels*pow(2, downsample_depth), 
                                out_channels=in_channels*pow(2, downsample_depth), 
-                               kernel_size=3, padding=1)
-        self.conv1 = nn.Conv2d(in_channels=in_channels*pow(2, downsample_depth), 
+                               kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=in_channels*pow(2, downsample_depth), 
                                out_channels=in_channels*pow(2, downsample_depth), 
-                               kernel_size=3, padding=1)
+                               kernel_size=3, padding=1),
+            nn.ReLU()
         
+        )
+
         
         # upsample
         self.upsamples = nn.ModuleList([
-
             nn.ConvTranspose2d(in_channels=in_channels*pow(2, i), 
                                            out_channels=in_channels*pow(2, i-1),
                                            kernel_size=2, stride=2)
-
-            #nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
             for i in range(downsample_depth, 0, -1)
         ])
         
@@ -301,14 +320,10 @@ class UNet(nn.Module):
         # downsample
         for down_block in self.downsample:
             saved_tensors.append(tensor)
-            tensor = down_block(tensor)            
-            tensor = F.max_pool2d(tensor, kernel_size=2, stride=2)
+            tensor = down_block(tensor)
             
         # inner part  
-        tensor = self.conv0(tensor)
-        tensor = F.relu(tensor)
-        tensor = self.conv1(tensor)
-        tensor = F.relu(tensor)
+        tensor = self.inner_part(tensor)
 
         # upsample
         for block_num, up_block in enumerate(self.upsamples):
