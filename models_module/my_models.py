@@ -334,5 +334,6 @@ class UNet(nn.Module):
             tensor = self.conv_upsample_without_changes_ch_amount[block_num](tensor)
             tensor = F.relu(tensor)
         tensor = self.last_conv(tensor)
+        tensor = nn.Softmax(dim=1)(tensor)
         return tensor
     
