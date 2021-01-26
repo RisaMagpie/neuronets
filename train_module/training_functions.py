@@ -8,7 +8,7 @@ from IPython import display
 
 
 
-def get_dls(path, size, batch_size):
+def get_dls(path, size, batch_size, num_workers):
     """Dataloaders for dataset from path.
     
     """
@@ -19,13 +19,13 @@ def get_dls(path, size, batch_size):
                        splitter=GrandparentSplitter(valid_name='val'),
                        get_items=get_image_files, get_y=parent_label,
                        item_tfms=[resize_ftm])
-    return dblock.dataloaders(source, path=source, bs=batch_size)
+    return dblock.dataloaders(source, path=source, bs=batch_size, num_workers=num_workers)
 
-def prepare_train_and_val_dls(path, batch_size, size=160):
+def prepare_train_and_val_dls(path, batch_size, size=160, num_workers=0):
     """Create and shuffle training and validation dataloaders.
     
     """
-    dloaders = get_dls(path, size=size, batch_size=batch_size)
+    dloaders = get_dls(path, size=size, batch_size=batch_size, num_workers=num_workers)
     trainloader = dloaders.train
     trainloader = trainloader.new(shuffle=True)
     valloader = dloaders.valid
@@ -43,7 +43,7 @@ def accuracy_and_loss(dataloader, net, device, criterion):
     
     for data in dataloader:
         with torch.no_grad():
-            inputs, labels = data
+            inputs, labels = data[0].to(device), data[1].to(device)
 
             outputs = net(inputs)
             _, predicted = torch.max(outputs.detach(), 1)
@@ -95,7 +95,7 @@ def train(net, optimizer, criterion, epoch_num, trainloader, valloader, device, 
     for epoch in range(epoch_num):  # loop over the dataset multiple times
         for data in trainloader:
             # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data
+            inputs, labels = data[0].to(device), data[1].to(device)
 
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -150,7 +150,7 @@ def test_metrics(net, device, testloader, out_channels):
 
     with torch.no_grad():
         for data in testloader:
-            images, labels = data
+            images, labels = data[0].to(device), data[1].to(device)
 
             outputs = net(images)
             _, predicted = torch.max(outputs.detach(), 1)
