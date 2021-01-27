@@ -276,33 +276,46 @@ class UNet(nn.Module):
             nn.Conv2d(in_channels=in_channels*pow(2, downsample_depth), 
                                out_channels=in_channels*pow(2, downsample_depth), 
                                kernel_size=3, padding=1),
+            nn.BatchNorm2d(num_features=in_channels*pow(2, downsample_depth)),
             nn.ReLU(),
             nn.Conv2d(in_channels=in_channels*pow(2, downsample_depth), 
                                out_channels=in_channels*pow(2, downsample_depth), 
                                kernel_size=3, padding=1),
+            nn.BatchNorm2d(num_features=in_channels*pow(2, downsample_depth)),
             nn.ReLU()
         
         )
-
         
         # upsample
         self.upsamples = nn.ModuleList([
-            nn.ConvTranspose2d(in_channels=in_channels*pow(2, i), 
+            nn.Sequential(
+                nn.ConvTranspose2d(in_channels=in_channels*pow(2, i), 
                                            out_channels=in_channels*pow(2, i-1),
-                                           kernel_size=2, stride=2)
+                                           kernel_size=2, stride=2),
+                nn.BatchNorm2d(num_features=in_channels*pow(2, i-1)),
+                nn.ReLU()
+            )
             for i in range(downsample_depth, 0, -1)
         ])
         
         self.conv_upsample_with_changes_ch_amount = nn.ModuleList([
-            nn.Conv2d(in_channels=in_channels*pow(2, i), 
+            nn.Sequential(
+                nn.Conv2d(in_channels=in_channels*pow(2, i), 
                       out_channels=in_channels*pow(2, i-1), 
-                      kernel_size=3, padding=1)
+                      kernel_size=3, padding=1),
+                nn.BatchNorm2d(num_features=in_channels*pow(2, i-1)),
+                nn.ReLU()
+            )
             for i in range(downsample_depth, 0, -1)
         ])
         self.conv_upsample_without_changes_ch_amount = nn.ModuleList([
-            nn.Conv2d(in_channels=in_channels*pow(2, i-1), 
+            nn.Sequential(
+                nn.Conv2d(in_channels=in_channels*pow(2, i-1), 
                       out_channels=in_channels*pow(2, i-1), 
-                      kernel_size=3, padding=1)
+                      kernel_size=3, padding=1),
+                nn.BatchNorm2d(num_features=in_channels*pow(2, i-1)),
+                nn.ReLU()
+            )
             for i in range(downsample_depth, 0, -1)
         ])
         self.last_conv = nn.Conv2d(in_channels=in_channels, 
@@ -312,10 +325,6 @@ class UNet(nn.Module):
         
     def forward(self, tensor):        
         saved_tensors = []
-        # crop надо вынести в другую часть программы
-        # h_dim_size = math.floor(np.log2(tensor.shape[0]))
-        # w_dim_size = math.floor(np.log2(tensor.shape[1]))    
-        # torchvision.transforms.CenterCrop
         
         # downsample
         for down_block in self.downsample:
@@ -330,10 +339,8 @@ class UNet(nn.Module):
             tensor = up_block(tensor)
             tensor = torch.cat((tensor, saved_tensors[self.downsample_depth-block_num-1]), 1)
             tensor = self.conv_upsample_with_changes_ch_amount[block_num](tensor)
-            tensor = F.relu(tensor)
             tensor = self.conv_upsample_without_changes_ch_amount[block_num](tensor)
-            tensor = F.relu(tensor)
         tensor = self.last_conv(tensor)
-        tensor = nn.Softmax(dim=1)(tensor)
+        tensor = nn.Sigmoid()(tensor)
         return tensor
     
