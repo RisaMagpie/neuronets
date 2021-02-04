@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import numpy as np
 import torch
 from torch import nn
@@ -8,7 +9,7 @@ from IPython import display
 
 
 
-def get_dls(path, size, batch_size, num_workers):
+def get_dls(path, size, batch_size, num_workers, device):
     """Dataloaders for dataset from path.
     
     """
@@ -19,13 +20,13 @@ def get_dls(path, size, batch_size, num_workers):
                        splitter=GrandparentSplitter(valid_name='val'),
                        get_items=get_image_files, get_y=parent_label,
                        item_tfms=[resize_ftm])
-    return dblock.dataloaders(source, path=source, bs=batch_size, num_workers=num_workers)
+    return dblock.dataloaders(source, path=source, device=device, bs=batch_size, num_workers=num_workers)
 
-def prepare_train_and_val_dls(path, batch_size, size=160, num_workers=0):
+def prepare_train_and_val_dls(path, batch_size, device, size=160, num_workers=0):
     """Create and shuffle training and validation dataloaders.
     
     """
-    dloaders = get_dls(path, size=size, batch_size=batch_size, num_workers=num_workers)
+    dloaders = get_dls(path, size=size, batch_size=batch_size, num_workers=num_workers, device=device)
     trainloader = dloaders.train
     trainloader = trainloader.new(shuffle=True)
     valloader = dloaders.valid
@@ -80,6 +81,7 @@ def show_plot(data_arrays, path):
 
     plt.tight_layout()
     plt.savefig(path)
+    plt.close(fig)
 
 
     
@@ -92,7 +94,7 @@ def train(net, optimizer, criterion, epoch_num, trainloader, valloader, device, 
     train_accuracy_history = []
     train_loss_history = []
     
-    for epoch in range(epoch_num):  # loop over the dataset multiple times
+    for epoch in tqdm(range(epoch_num)):  # loop over the dataset multiple times
         for data in trainloader:
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data[0].to(device), data[1].to(device)
