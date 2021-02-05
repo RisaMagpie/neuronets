@@ -9,13 +9,30 @@ import nvidia_smi
 import time
 
 def get_mem_info(device_id):
+    # with nvidia-smi, не та функция: по памяти не сходится
+    """
     nvidia_smi.nvmlInit()
     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(device_id)
     info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
     free_memory_in_bytes = info.free
     used_memory_in_bytes = info.used
+    total_memory_in_bytes = info.total
     nvidia_smi.nvmlShutdown()
-    return free_memory_in_bytes, used_memory_in_bytes
+    """
+    gpu_list = [device_id]
+    nvidia_smi.nvmlInit()
+    handle = [nvidia_smi.nvmlDeviceGetHandleByIndex(i) for i in gpu_list]
+    res = [nvidia_smi.nvmlDeviceGetMemoryInfo(item) for item in handle]
+    res = [100 * item.used / item.total for item in res]
+    nvidia_smi.nvmlShutdown()
+    return res
+
+def get_mem_info_with_torch(device_id):
+    t = torch.cuda.get_device_properties(device_id).total_memory
+    r = torch.cuda.memory_reserved(device_id) 
+    a = torch.cuda.memory_allocated(device_id)
+    f = r-a  # free inside reserved
+    return 
 
 def get_run_mem(dataset, device_id, model_config, train_pipeline, batch_size=16, n_iters=50):
     with GPUMemoryMonitor(gpu_list=[device_id]) as monitor:
@@ -31,8 +48,10 @@ def get_max_batch_size(dataset, device_id, model_config, train_pipeline, init_ba
     return max_batch_size
 
 def main():
-    dataset = Imagenette160(bar=True)
     device_id = 3
+    print("Used: ", get_mem_info(device_id))
+    dataset = Imagenette160(bar=True)
+    
 
     model_config = dict(model = UNet)
     model_config['device'] = f'cuda:{device_id}'
@@ -52,10 +71,25 @@ def main():
     #init_batch_size = 16
     n_iters = 50
     #print("Max batch size:", get_max_batch_size(dataset, device_id, model_config, train_pipeline, init_batch_size, n_iters))
-    
+    """
     init_batch_size = 16
     for i in range(5):
         print("Max batch size:", get_max_batch_size(dataset, device_id, model_config, train_pipeline, init_batch_size, n_iters))
+    """    
+    #free_memory_in_bytes, used_memory_in_bytes, total_memory_in_bytes = get_mem_info(device_id)
+    print("Used: ", get_mem_info(device_id))
+    init_batch_size = 4
+    batch_size = init_batch_size
+    torch.cuda.empty_cache()
+    first_run_memory = get_run_mem(dataset, device_id, model_config, train_pipeline, batch_size=batch_size, n_iters=n_iters)
+    torch.cuda.empty_cache()
+    for i in range(2, 5):
+        init_batch_size = pow(2,(i-1))*batch_size
+        second_run_memory = get_run_mem(dataset, device_id, model_config, train_pipeline, batch_size=i*batch_size, n_iters=n_iters)
+        print("Batches: ",  pow(2,(i-1))*batch_size,  pow(2,i)*batch_size)
+        print(first_run_memory, second_run_memory)
+        print("Max batch size:", init_batch_size * (100 - 2 * first_run_memory + second_run_memory)/(second_run_memory - first_run_memory))
+        first_run_memory = second_run_memory
     
 if __name__ == "__main__":
     main()
