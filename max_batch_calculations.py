@@ -25,7 +25,7 @@ def get_mem_info(device_id):
     res = [nvidia_smi.nvmlDeviceGetMemoryInfo(item) for item in handle]
     res = [100 * item.used / item.total for item in res]
     nvidia_smi.nvmlShutdown()
-    return res
+    return res[0]
 
 def get_mem_info_with_torch(device_id):
     t = torch.cuda.get_device_properties(device_id).total_memory
