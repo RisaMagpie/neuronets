@@ -66,7 +66,7 @@ def main():
 #     torch.cuda.empty_cache()
 #     first_run_memory = get_run_mem(dataset, device_id, model_config, train_pipeline, batch_size=batch_size, n_iters=n_iters)
 #     torch.cuda.empty_cache()
-#     for i in range(2, 10):
+#     for i in range(1, 6):
 #         init_batch_size = pow(2,(i-1))*batch_size
 #         second_run_memory = get_run_mem(dataset, device_id, model_config, train_pipeline, batch_size=pow(2,i)*batch_size, n_iters=n_iters)
 #         print("Batches: ",  pow(2,(i-1))*batch_size,  pow(2,i)*batch_size)
@@ -74,9 +74,11 @@ def main():
 #         print("Max batch size:", init_batch_size * (100 - 2 * first_run_memory + second_run_memory)/(second_run_memory - first_run_memory))
 #         first_run_memory = second_run_memory
 
-#     n_iters = 50
-#     second_run_memory = get_run_mem(dataset, device_id, model_config, train_pipeline, batch_size=78, n_iters=n_iters)
-#     print(second_run_memory)
+    n_iters = 50
+    batch_size = 78
+    second_run_memory = get_run_mem(dataset, device_id, model_config, train_pipeline, batch_size=batch_size, n_iters=n_iters)
+    print(second_run_memory)
+
         
 
     
