@@ -7,4 +7,4 @@ train_python_libs
 conv_pad_experiment/data
 /seismiqb
 conv_pad_experiment/MNIST test/data/*
-
+UNet_research/UNet_pascal_train_test_research/
